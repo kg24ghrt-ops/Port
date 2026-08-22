@@ -1,14 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- Base application theme using Material3 -->
     <style name="Theme.PortMawer" parent="Theme.Material3.Dark.NoActionBar">
-        <item name="colorPrimary">@color/port_active</item>
-        <item name="colorPrimaryVariant">@color/bg_dark</item>
-        <item name="colorOnPrimary">@color/bg_dark</item>
-        <item name="colorSecondary">@color/port_selected</item>
-        <item name="colorSecondaryVariant">@color/port_selected</item>
-        <item name="colorOnSecondary">@color/text_primary</item>
-        <item name="android:statusBarColor">@color/bg_dark</item>
-        <item name="android:navigationBarColor">@color/bg_dark</item>
-        <item name="android:windowBackground">@color/bg_dark</item>
+        <!-- Hardcoded Hex codes to prevent resource linking crashes -->
+        <item name="colorPrimary">#00E676</item>
+        <item name="colorPrimaryVariant">#0F1119</item>
+        <item name="colorOnPrimary">#0F1119</item>
+        <item name="colorSecondary">#448AFF</item>
+        <item name="colorSecondaryVariant">#448AFF</item>
+        <item name="colorOnSecondary">#FFFFFF</item>
+        
+        <item name="android:statusBarColor">#0F1119</item>
+        <item name="android:navigationBarColor">#0F1119</item>
+        <item name="android:windowBackground">#0F1119</item>
     </style>
 </resources>
