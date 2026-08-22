@@ -2,10 +2,12 @@
 #include <string>
 #include "tunnel_manager.h"
 #include "port_selector.h"
+#include "connection_tester.h"
 #include <android/log.h>
 
 #define LOG_TAG "PortMawer::JNI"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
 extern "C" {
 
@@ -16,7 +18,7 @@ Java_com_example_portmawer_PortSelectorWrapper_nativeInit(
     const char* host_str = env->GetStringUTFChars(host, nullptr);
     TunnelManager::getInstance().initialize(std::string(host_str));
     env->ReleaseStringUTFChars(host, host_str);
-    LOGI("Native initialized");
+    LOGI("Native initialized for host: %s", host_str);
 }
 
 JNIEXPORT void JNICALL
@@ -24,13 +26,16 @@ Java_com_example_portmawer_PortSelectorWrapper_nativeShutdown(
     JNIEnv* env, jobject thiz
 ) {
     TunnelManager::getInstance().shutdown();
+    LOGI("Native shutdown complete");
 }
 
 JNIEXPORT jboolean JNICALL
 Java_com_example_portmawer_PortSelectorWrapper_nativeConnect(
     JNIEnv* env, jobject thiz
 ) {
-    return TunnelManager::getInstance().connect() ? JNI_TRUE : JNI_FALSE;
+    bool success = TunnelManager::getInstance().connect();
+    LOGI("Native connect result: %s", success ? "true" : "false");
+    return success ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT void JNICALL
@@ -65,17 +70,24 @@ JNIEXPORT void JNICALL
 Java_com_example_portmawer_PortSelectorWrapper_nativeTestPort(
     JNIEnv* env, jobject thiz, jint port
 ) {
+    LOGI("Testing specific port: %d", port);
     TunnelManager::getInstance().switchToPort(port);
 }
 
+// *** THE CRITICAL FIX IS HERE ***
+// Timeout changed from 4000 to 1500 to prevent UI freezing
 JNIEXPORT jstring JNICALL
 Java_com_example_portmawer_PortSelectorWrapper_nativeTestPortSync(
     JNIEnv* env, jobject thiz, jstring host, jint port
 ) {
     const char* host_str = env->GetStringUTFChars(host, nullptr);
+    
+    // 1500ms (1.5 seconds) is plenty of time for a real connection,
+    // but short enough that dead ports fail instantly instead of hanging the UI.
     TestResult result = ConnectionTester::testPortWithDomain(
-        std::string(host_str), port, 4000
+        std::string(host_str), port, 1500 
     );
+    
     env->ReleaseStringUTFChars(host, host_str);
 
     std::string response;
@@ -85,6 +97,7 @@ Java_com_example_portmawer_PortSelectorWrapper_nativeTestPortSync(
         response = "FAIL:" + result.response;
     }
 
+    LOGI("Port %d test result: %s", port, response.c_str());
     return env->NewStringUTF(response.c_str());
 }
 
@@ -100,7 +113,12 @@ Java_com_example_portmawer_PortSelectorWrapper_nativeStartScan(
     TunnelManager::getInstance().testPorts(
         [jvm, global_callback](int port, bool success) {
             JNIEnv* cb_env;
-            jvm->AttachCurrentThread(&cb_env, nullptr);
+            bool attached = false;
+            
+            if (jvm->GetEnv((void**)&cb_env, JNI_VERSION_1_6) != JNI_OK) {
+                jvm->AttachCurrentThread(&cb_env, nullptr);
+                attached = true;
+            }
 
             jclass cls = cb_env->GetObjectClass(global_callback);
             jmethodID method = cb_env->GetMethodID(
@@ -110,7 +128,9 @@ Java_com_example_portmawer_PortSelectorWrapper_nativeStartScan(
                 cb_env->CallVoidMethod(global_callback, method, port, success ? JNI_TRUE : JNI_FALSE);
             }
 
-            jvm->DetachCurrentThread();
+            if (attached) {
+                jvm->DetachCurrentThread();
+            }
         }
     );
 }
