@@ -50,7 +50,11 @@ private:
     std::string target_host_;
     std::vector<int> ports_to_test_;
     std::vector<PortCandidate> results_;
-    std::mutex results_mutex_;
+    
+    // *** THIS IS THE FIX ***
+    // The 'mutable' keyword allows the mutex to be locked 
+    // even inside a 'const' function like getResults().
+    mutable std::mutex results_mutex_; 
 
     std::atomic<bool> scanning_{false};
     std::thread scan_thread_;
