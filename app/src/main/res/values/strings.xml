@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">PortMawer</string>
+    <string name="connect">Connect</string>
+    <string name="disconnect">Disconnect</string>
+    <string name="connecting">Connecting...</string>
+    <string name="connected">Connected</string>
+    <string name="disconnected">Disconnected</string>
+    <string name="testing_ports">Testing Ports...</string>
+    <string name="active_port">Active Port</string>
+    <string name="available_ports">Available Ports</string>
+    <string name="refresh">Refresh</string>
+</resources>

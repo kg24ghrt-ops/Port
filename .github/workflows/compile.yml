@@ -1,0 +1,36 @@
+name: Compile and Upload Android App
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v7
+
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'zulu'
+        java-version: '17' # Switch to '21' if your project requires a higher Java toolchain
+        cache: 'gradle'
+
+    - name: Grant Execute Permission to Gradlew
+      run: chmod +x gradlew
+
+    - name: Build Debug APK
+      run: ./gradlew assembleDebug 
+
+    - name: Upload APK Artifact
+      uses: actions/upload-artifact@v7
+      with:
+        name: debug-apk
+        path: "**/build/outputs/apk/debug/*.apk"
+        archive: false # Prevents double-zipping an already compressed APK file
+        

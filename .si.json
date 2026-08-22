@@ -1,0 +1,38 @@
+{
+  "plugin": "org.smartide.plugin.python",
+  "run": "python main.py",
+  "intelligence": {
+    ".json": {
+      "enabled": true,
+      "run": "vscode-json-language-server --stdio"
+    },
+    ".py": {
+      "enabled": false,
+      "run": "pylsp"
+    },
+    ".kts": {
+      "enabled": false,
+      "run": "kotlin-language-server"
+    },
+    ".h": {
+      "enabled": true,
+      "run": "clangd"
+    },
+    ".cpp": {
+      "enabled": false,
+      "run": "clangd"
+    },
+    ".kt": {
+      "enabled": true,
+      "run": "kotlin-language-server"
+    },
+    ".xml": {
+      "enabled": true,
+      "run": "lemminx"
+    },
+    ".yml": {
+      "enabled": false,
+      "run": "yaml-language-server --stdio"
+    }
+  }
+}
