@@ -52,7 +52,7 @@ class PortMawerVpnService : VpnService() {
             .addDnsServer("1.1.1.1")
             .addDnsServer("8.8.8.8")
             .setBlocking(true)
-            .addDisallowedApplication(packageName)
+            .addDisallowedApplication(packageName) // Prevent self-loops
 
         tunnelInterface = builder.establish() ?: return stopSelf()
         isRunning = true
@@ -73,7 +73,8 @@ class PortMawerVpnService : VpnService() {
 
                 val version = (buffer[0].toInt() shr 4) and 0x0F
                 
-                // FIX: Pass through IPv6 (version 6) directly to the network
+                // SAFETY FIX: Pass through IPv6 and all non-IPv4 traffic directly.
+                // This ensures games (UDP) and modern apps don't break.
                 if (version != 4) {
                     outputStream.write(buffer, 0, length)
                     continue
@@ -90,11 +91,12 @@ class PortMawerVpnService : VpnService() {
                         serviceScope.launch {
                             handleLocalOutboundForwarding(destIp, destPort, buffer.copyOfRange(0, length))
                         }
-                        continue // Intercepted, don't echo back
+                        continue // Intercepted, don't echo back to TUN
                     }
                 }
                 
-                // FIX: CRITICAL! Pass through all non-443 TCP, UDP, and ICMP traffic
+                // CRITICAL FIX: Pass through all non-443 TCP, UDP, and ICMP traffic.
+                // Without this, apps like Subway Surfers or background syncs will hang.
                 outputStream.write(buffer, 0, length)
 
             } catch (e: Exception) {
@@ -109,29 +111,27 @@ class PortMawerVpnService : VpnService() {
         try {
             val outboundSocket = Socket()
             
-            // CRITICAL FIX: protect() tells Android NOT to route this socket through the VPN
-            // This prevents infinite loops where the proxy traffic gets intercepted by itself
+            // SAFETY: protect() tells Android NOT to route this socket through the VPN.
+            // Without this, the proxy traffic gets intercepted by itself, causing a crash loop.
             protect(outboundSocket)
 
+            // Bind to dynamic local source port to escape local firewall state tracking
             if (dynamicLocalPort > 0) {
                 outboundSocket.bind(InetSocketAddress("0.0.0.0", dynamicLocalPort))
             }
 
             outboundSocket.connect(InetSocketAddress(destIp, destPort), 3000)
             
-            // FIX: Actually send the intercepted payload to the real server
-            val outStream = outboundSocket.getOutputStream()
-            
-            // We need to strip the IP header and send only the TCP payload to the socket
-            // The IP header length is in the first byte (IHL * 4)
+            // Strip IP header and send TCP payload to the real server
             val ihl = (rawIpPacket[0].toInt() and 0x0F) * 4
             val tcpPayload = rawIpPacket.copyOfRange(ihl, rawIpPacket.size)
             
+            val outStream = outboundSocket.getOutputStream()
             outStream.write(tcpPayload)
             outStream.flush()
 
-            // Keep socket alive briefly to allow return traffic 
-            // (Full bidirectional NAT requires a more complex state machine, 
+            // Keep socket alive briefly to allow return traffic
+            // (Full bidirectional NAT requires a complex state machine, 
             // but this establishes the connection and sends the initial ClientHello)
             delay(5000) 
             outboundSocket.close()

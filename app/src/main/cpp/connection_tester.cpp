@@ -3,7 +3,7 @@
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
-#include <netdb.h> // Added for gai_strerror
+#include <netdb.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <poll.h>
@@ -33,6 +33,7 @@ bool ConnectionTester::rawTcpConnect(const std::string& host, int port, int time
 
     int flags = fcntl(sockfd, F_GETFL, 0);
     fcntl(sockfd, F_SETFL, flags | O_NONBLOCK);
+    
     int nodelay = 1;
     setsockopt(sockfd, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
 
@@ -42,10 +43,15 @@ bool ConnectionTester::rawTcpConnect(const std::string& host, int port, int time
 
     if (connect_result < 0) {
         if (errno != EINPROGRESS) { close(sockfd); return false; }
+        
         struct pollfd pfd{};
         pfd.fd = sockfd;
         pfd.events = POLLOUT;
-        if (poll(&pfd, 1, timeout_ms) <= 0) { close(sockfd); return false; }
+        
+        if (poll(&pfd, 1, timeout_ms) <= 0) { 
+            close(sockfd); 
+            return false; 
+        }
         
         int error = 0; socklen_t len = sizeof(error);
         getsockopt(sockfd, SOL_SOCKET, SO_ERROR, &error, &len);
@@ -72,7 +78,8 @@ TestResult ConnectionTester::testPort(const std::string& host, int port, int tim
 }
 
 TestResult ConnectionTester::testPortWithDomain(const std::string& domain, int port, int timeout_ms) {
-    // FIX: Just call testPort. The redundant DNS check here was causing double timeouts.
+    // OPTIMIZATION: Just call testPort. The previous redundant DNS check here 
+    // was causing dead ports to take twice as long to fail.
     return testPort(domain, port, timeout_ms);
 }
 

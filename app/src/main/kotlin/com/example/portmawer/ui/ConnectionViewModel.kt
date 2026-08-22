@@ -30,14 +30,11 @@ class ConnectionViewModel : ViewModel() {
     private val _statusMessage = MutableLiveData("Ready")
     val statusMessage: LiveData<String> = _statusMessage
 
-    private val targetHost = "one.one.one.one" // Test target
-
-    // Default ports to scan
-    private val defaultPorts = listOf(
-        443, 8443, 4443, 2053, 2083, 2087,
-        2096, 8080, 8888, 9443, 44321,
-        10443, 20443, 30443
-    )
+    // OPTIMIZED: Use Cloudflare as it reliably responds on standard CDN ports
+    private val targetHost = "cloudflare.com" 
+    
+    // OPTIMIZED: Reduced to ports that CDNs actually use
+    private val defaultPorts = listOf(443, 8443, 2053, 2083, 2087, 2096)
 
     init {
         selector.initialize(targetHost)
@@ -46,69 +43,70 @@ class ConnectionViewModel : ViewModel() {
 
     private fun initializePortList() {
         _portList.value = defaultPorts.map { port ->
-            PortData(port = port, isActive = false)
+            PortData(port = port, isActive = false, statusText = "Waiting...")
         }
     }
 
     fun connect() {
         viewModelScope.launch(Dispatchers.IO) {
+            _isScanning.postValue(true)
             _connectionState.postValue(TunnelState.TESTING_PORTS)
-            _statusMessage.postValue("Testing available ports...")
+            _statusMessage.postValue("Scanning network paths...")
 
-            // Quick test on default ports
-            val results = mutableListOf<PortData>()
-            for (port in defaultPorts) {
-                val result = selector.testPortSync(targetHost, port)
-                val parts = result.split(":")
-                val success = parts[0] == "OK"
-                val latency = if (success && parts.size > 1) parts[1].toIntOrNull() ?: -1 else -1
+            val results = defaultPorts.map { 
+                PortData(port = it, isActive = false, statusText = "Waiting...") 
+            }.toMutableList()
 
-                results.add(
-                    PortData(
-                        port = port,
-                        isActive = success,
-                        latencyMs = latency,
-                        statusText = if (success) "OK ${latency}ms" else "FAILED"
-                    )
+            var bestPort: PortData? = null
+
+            for (i in results.indices) {
+                val port = results[i].port
+                
+                results[i] = results[i].copy(statusText = "Testing...")
+                withContext(Dispatchers.Main) { _portList.value = results.toList() }
+
+                val resultString = selector.testPortSync(targetHost, port)
+                val parts = resultString.split(":")
+                val isSuccess = parts[0] == "OK"
+                val latency = if (isSuccess && parts.size > 1) parts[1].toIntOrNull() ?: -1 else -1
+                val statusText = if (isSuccess) "OK ${latency}ms" else "FAILED"
+
+                results[i] = results[i].copy(
+                    isActive = isSuccess,
+                    latencyMs = latency,
+                    statusText = statusText
                 )
 
-                withContext(Dispatchers.Main) {
-                    _portList.value = results + defaultPorts.drop(results.size).map {
-                        PortData(port = it, isActive = false)
-                    }
+                withContext(Dispatchers.Main) { _portList.value = results.toList() }
+
+                if (isSuccess && (bestPort == null || latency < bestPort!!.latencyMs)) {
+                    bestPort = results[i]
                 }
             }
 
-            // Find best port
-            val bestPort = results
-                .filter { it.isActive }
-                .minByOrNull { it.latencyMs }
+            _isScanning.postValue(false)
 
             if (bestPort != null) {
                 _connectionState.postValue(TunnelState.CONNECTING)
-                _statusMessage.postValue("Connecting via port ${bestPort.port}...")
-
+                _statusMessage.postValue("Establishing tunnel via :${bestPort.port}...")
+                
                 selector.testPort(bestPort.port)
                 val connected = selector.connect()
 
                 if (connected) {
-                    _connectionState.postValue(TunnelState.CONNECTED)
                     _activePort.postValue(bestPort.port)
-                    _statusMessage.postValue("Connected via port ${bestPort.port}")
+                    _connectionState.postValue(TunnelState.CONNECTED)
+                    _statusMessage.postValue("Active on :${bestPort.port}")
 
-                    // Update UI to show selected port
-                    withContext(Dispatchers.Main) {
-                        _portList.value = results.map {
-                            it.copy(isSelected = it.port == bestPort.port)
-                        }
-                    }
+                    val finalResults = results.map { it.copy(isSelected = it.port == bestPort.port) }
+                    withContext(Dispatchers.Main) { _portList.value = finalResults }
                 } else {
                     _connectionState.postValue(TunnelState.ERROR)
-                    _statusMessage.postValue("Connection failed")
+                    _statusMessage.postValue("Tunnel failed")
                 }
             } else {
                 _connectionState.postValue(TunnelState.ERROR)
-                _statusMessage.postValue("No available ports found")
+                _statusMessage.postValue("No active paths found")
             }
         }
     }
@@ -119,65 +117,29 @@ class ConnectionViewModel : ViewModel() {
             _connectionState.postValue(TunnelState.DISCONNECTED)
             _activePort.postValue(-1)
             _statusMessage.postValue("Disconnected")
-
             withContext(Dispatchers.Main) {
-                _portList.value = _portList.value?.map { it.copy(isSelected = false) }
+                _portList.value = _portList.value?.map { it.copy(isSelected = false, statusText = "Waiting...") }
             }
         }
     }
 
     fun selectPort(port: Int) {
         viewModelScope.launch(Dispatchers.IO) {
-            _statusMessage.postValue("Testing port $port...")
-            val result = selector.testPortSync(targetHost, port)
-            val success = result.startsWith("OK")
-
-            if (success) {
-                selector.testPort(port)
-                _activePort.postValue(port)
-                _statusMessage.postValue("Switched to port $port")
-
-                withContext(Dispatchers.Main) {
-                    _portList.value = _portList.value?.map {
-                        it.copy(isSelected = it.port == port)
-                    }
-                }
-            } else {
-                _statusMessage.postValue("Port $port is not responding")
-            }
-        }
-    }
-
-    fun refreshPorts() {
-        viewModelScope.launch(Dispatchers.IO) {
-            _isScanning.postValue(true)
-            _statusMessage.postValue("Scanning ports...")
-
-            val results = mutableListOf<PortData>()
-            for (port in defaultPorts) {
-                val result = selector.testPortSync(targetHost, port)
-                val parts = result.split(":")
-                val success = parts[0] == "OK"
-                val latency = if (success && parts.size > 1) parts[1].toIntOrNull() ?: -1 else -1
-
-                results.add(
-                    PortData(
-                        port = port,
-                        isActive = success,
-                        latencyMs = latency,
-                        isSelected = port == _activePort.value,
-                        statusText = if (success) "OK ${latency}ms" else "FAILED"
-                    )
-                )
-            }
+            _statusMessage.postValue("Switching to :$port...")
+            _connectionState.postValue(TunnelState.RECONNECTING)
+            
+            selector.testPort(port)
+            _activePort.postValue(port)
+            _connectionState.postValue(TunnelState.CONNECTED)
+            _statusMessage.postValue("Active on :$port")
 
             withContext(Dispatchers.Main) {
-                _portList.value = results
-                _isScanning.postValue(false)
-                _statusMessage.postValue("Scan complete")
+                _portList.value = _portList.value?.map { it.copy(isSelected = it.port == port) }
             }
         }
     }
+
+    fun refreshPorts() = connect()
 
     override fun onCleared() {
         super.onCleared()
