@@ -14,7 +14,6 @@ import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.net.InetSocketAddress
 import java.net.Socket
-import java.nio.ByteBuffer
 
 class PortMawerVpnService : VpnService() {
 
@@ -28,6 +27,9 @@ class PortMawerVpnService : VpnService() {
     private var tunnelInterface: ParcelFileDescriptor? = null
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val selector = PortSelectorWrapper()
+    
+    // ADDED: Simple boolean flag to control the packet reading loop
+    private var isRunning = false 
 
     override fun onCreate() {
         super.onCreate()
@@ -63,6 +65,7 @@ class PortMawerVpnService : VpnService() {
 
         tunnelInterface = builder.establish() ?: return stopSelf()
 
+        isRunning = true // Start the loop
         startForeground(NOTIFICATION_ID, createNotification())
 
         // Start the packet interception and forwarding engine
@@ -80,7 +83,8 @@ class PortMawerVpnService : VpnService() {
         val outputStream = FileOutputStream(tunnelInterface!!.fileDescriptor)
         val buffer = ByteArray(32767)
 
-        while (isActive) {
+        // FIXED: Use isRunning instead of isActive
+        while (isRunning) { 
             try {
                 val length = inputStream.read(buffer)
                 if (length <= 0) continue
@@ -114,7 +118,8 @@ class PortMawerVpnService : VpnService() {
                 // outputStream.write(buffer, 0, length) 
 
             } catch (e: Exception) {
-                if (!isActive) break
+                // FIXED: Use isRunning instead of !isActive
+                if (!isRunning) break 
             }
         }
     }
@@ -152,6 +157,7 @@ class PortMawerVpnService : VpnService() {
     }
 
     private fun stopVpn() {
+        isRunning = false // Kill the loop immediately
         serviceScope.cancel()
         tunnelInterface?.close()
         tunnelInterface = null
